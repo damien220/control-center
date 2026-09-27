@@ -10,7 +10,6 @@ import {
   chmod,
   rm,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type {
   AiKeyProvider,
@@ -32,6 +31,9 @@ import {
 import { isValidPublicProfileUrl } from "@/lib/public-metrics";
 import { AI_KEY_PROVIDERS, DEFAULT_LOCAL_AI_URLS, aiEnvironmentKey, cleanAiModelOverride, isAiKeyProvider, isLocalAiProvider, isValidAiModelId, localAiBaseUrl } from "@/lib/ai-providers";
 import { defaultBriefSections, normalizeBriefSections } from "@/lib/daily-brief-snapshot";
+import { dataDirectory } from "@/lib/data-directory";
+
+export { dataDirectory, defaultDataDirectory } from "@/lib/data-directory";
 
 type StoredAudienceAccount = Omit<
   AudienceAccountInput,
@@ -108,36 +110,6 @@ function serializeSettingsWrite<T>(operation: () => Promise<T>) {
     () => undefined,
   );
   return result;
-}
-
-export function defaultDataDirectory() {
-  if (process.platform === "darwin")
-    return path.join(
-      os.homedir(),
-      "Library",
-      "Application Support",
-      "Control Center",
-    );
-  if (process.platform === "win32")
-    return path.join(
-      process.env.LOCALAPPDATA || process.env.APPDATA || os.homedir(),
-      "Control Center",
-    );
-  return path.join(
-    process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-    "control-center",
-  );
-}
-
-export function dataDirectory() {
-  const configured = process.env.CONTROL_CENTER_DATA_DIR?.trim();
-  if (configured) {
-    if (!path.isAbsolute(configured))
-      throw new Error("CONTROL_CENTER_DATA_DIR must be an absolute path.");
-    return configured;
-  }
-  const legacy = path.join(process.cwd(), ".control-center");
-  return existsSync(legacy) ? legacy : defaultDataDirectory();
 }
 
 export function legacyBrowserImportAllowed() {

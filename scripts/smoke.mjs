@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
@@ -21,6 +22,7 @@ const port = await availableLoopbackPort();
 const packageMetadata = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const accessToken = randomBytes(32).toString("base64url");
 const dataDirectory = await mkdtemp(
   path.join(os.tmpdir(), "control-center-smoke-"),
 );
@@ -37,6 +39,7 @@ const server = spawn(
       ...process.env,
       CONTROL_CENTER_DATA_DIR: dataDirectory,
       PORT: String(port),
+      CONTROL_CENTER_ACCESS_TOKEN: accessToken,
       OPENAI_API_KEY: "",
       ANTHROPIC_API_KEY: "",
       GEMINI_API_KEY: "",
@@ -178,8 +181,55 @@ try {
   const home = await fetch(`http://127.0.0.1:${port}/`);
   if (!home.ok || !(await home.text()).includes("Control Center"))
     throw new Error("The dashboard home page did not render.");
+  const homePolicy = home.headers.get("content-security-policy") || "";
+  if (
+    !/script-src 'self' 'nonce-[^']+'/.test(homePolicy) ||
+    !homePolicy.includes("frame-ancestors 'none'") ||
+    home.headers.get("x-frame-options") !== "DENY" ||
+    home.headers.get("x-content-type-options") !== "nosniff" ||
+    home.headers.get("referrer-policy") !== "no-referrer"
+  )
+    throw new Error("The home page is missing its security headers.");
+  const authorizedFetch = (url, init = {}) =>
+    fetch(url, {
+      ...init,
+      headers: { Authorization: `Bearer ${accessToken}`, ...init.headers },
+    });
+  const anonymous = await fetch(`http://127.0.0.1:${port}/api/settings`);
+  if (anonymous.status !== 401)
+    throw new Error(`An unauthenticated API request returned HTTP ${anonymous.status}, expected 401.`);
+  if (anonymous.headers.get("x-content-type-options") !== "nosniff")
+    throw new Error("API responses are missing their security headers.");
+  const wrongToken = await fetch(`http://127.0.0.1:${port}/api/session`, {
+    method: "POST",
+    headers: { Authorization: "Bearer not-the-token-not-the-token-not-the-token" },
+  });
+  if (wrongToken.status !== 401)
+    throw new Error("The session exchange accepted a wrong access token.");
+  const session = await fetch(`http://127.0.0.1:${port}/api/session`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const sessionCookie = (session.headers.get("set-cookie") || "").split(";")[0];
+  if (!session.ok || !/HttpOnly/i.test(session.headers.get("set-cookie") || "") ||
+      !/SameSite=Strict/i.test(session.headers.get("set-cookie") || ""))
+    throw new Error("The session exchange did not issue an HttpOnly, SameSite=Strict cookie.");
+  const cookieRead = await fetch(`http://127.0.0.1:${port}/api/settings`, { headers: { Cookie: sessionCookie } });
+  if (!cookieRead.ok) throw new Error("The session cookie did not authorize the dashboard API.");
+  const noOriginWrite = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { Cookie: sessionCookie, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (noOriginWrite.status !== 403)
+    throw new Error(`A cookie-only write without Origin returned HTTP ${noOriginWrite.status}, expected 403.`);
+  const crossSiteRefresh = await fetch(`http://127.0.0.1:${port}/api/live/industry?refresh=1`, {
+    headers: { Cookie: sessionCookie, "Sec-Fetch-Site": "cross-site" },
+  });
+  if (crossSiteRefresh.status !== 403)
+    throw new Error("A cross-site refresh request was not blocked.");
   const getJson = async (pathname) => {
-    const result = await fetch(`http://127.0.0.1:${port}${pathname}`);
+    const result = await authorizedFetch(`http://127.0.0.1:${port}${pathname}`);
     if (!result.ok)
       throw new Error(`${pathname} returned HTTP ${result.status}.`);
     return result.json();
@@ -210,7 +260,7 @@ try {
     );
   }
   const secretProbe = "smoke-key-must-never-return";
-  const saveSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+  const saveSecret = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -223,7 +273,7 @@ try {
     }),
   });
   if (!saveSecret.ok) throw new Error("The Settings API could not save an optional AI key.");
-  const secretReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const secretReadbackText = await (await authorizedFetch(`http://127.0.0.1:${port}/api/settings`)).text();
   const secretReadback = JSON.parse(secretReadbackText);
   if (
     secretReadbackText.includes(secretProbe) ||
@@ -233,14 +283,14 @@ try {
   ) throw new Error("The Settings API did not keep the optional AI key server-side.");
   const settingsWithoutAi = structuredClone(secretReadback);
   delete settingsWithoutAi.ai;
-  const preserveSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+  const preserveSecret = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settingsWithoutAi),
   });
   if (!preserveSecret.ok)
     throw new Error("The Settings API rejected a backward-compatible save without AI fields.");
-  const preservedReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const preservedReadbackText = await (await authorizedFetch(`http://127.0.0.1:${port}/api/settings`)).text();
   const preservedReadback = JSON.parse(preservedReadbackText);
   if (
     preservedReadbackText.includes(secretProbe) ||
@@ -248,7 +298,7 @@ try {
     preservedReadback.ai?.provider !== "openai" ||
     preservedReadback.ai?.model !== "gpt-5-mini-smoke-probe"
   ) throw new Error("A Settings save without AI fields changed the saved AI configuration.");
-  const clearSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+  const clearSecret = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -257,7 +307,7 @@ try {
     }),
   });
   if (!clearSecret.ok) throw new Error("The Settings API could not clear an optional AI key.");
-  const clearedReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const clearedReadbackText = await (await authorizedFetch(`http://127.0.0.1:${port}/api/settings`)).text();
   const clearedReadback = JSON.parse(clearedReadbackText);
   if (
     clearedReadbackText.includes(secretProbe) ||
@@ -287,7 +337,7 @@ try {
       throw new Error("A fresh daily brief must contain only empty, unconfigured snapshot sections.");
     }
   }
-  const saveBrief = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+  const saveBrief = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -305,12 +355,12 @@ try {
     { ...clearedReadback, ai: { ...clearedReadback.ai, model: "someone@example.com" } },
     { ...clearedReadback, newsletters: { ...clearedReadback.newsletters, googleClientId: "someone@example.com" } },
   ]) {
-    const rejected = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    const rejected = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(invalid),
     });
     if (rejected.status !== 400) throw new Error("Configuration fields accepted an autofilled email address.");
   }
-  const blocked = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+  const blocked = await authorizedFetch(`http://127.0.0.1:${port}/api/settings`, {
     headers: { Host: "attacker.example", Origin: "http://attacker.example" },
   });
   if (blocked.status !== 403)
@@ -320,7 +370,7 @@ try {
   if (server.exitCode !== null || server.signalCode !== null)
     throw new Error(`The launcher exited during smoke verification.\n${output}`);
   console.log(
-    "Golden-path launcher smoke passed: health, home page, generic empty first run, and localhost boundary.",
+    "Golden-path launcher smoke passed: health, home page, security headers, access token, generic empty first run, and localhost boundary.",
   );
 } finally {
   await stopServer();

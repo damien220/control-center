@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
 import { registerHooks } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type { StoredSettings } from "../lib/server/settings";
 import type { AiKeyProvider } from "../lib/types";
@@ -16,6 +19,16 @@ registerHooks({
     if (url === "data:text/javascript,export {};") return { format: "commonjs", source: "module.exports = {};", shortCircuit: true };
     return nextLoad(url, context);
   },
+});
+
+// Cloud requests are counted against the daily cap in SQLite; keep that
+// ledger in a throwaway data directory.
+const dataDirectory = mkdtempSync(path.join(os.tmpdir(), "control-center-ai-runtime-"));
+process.env.CONTROL_CENTER_DATA_DIR = dataDirectory;
+test.after(() => {
+  globalThis.controlCenterDatabase?.close();
+  globalThis.controlCenterDatabase = undefined;
+  rmSync(dataDirectory, { recursive: true, force: true });
 });
 
 function settingsFor(provider: AiKeyProvider, model = ""): StoredSettings {
@@ -160,4 +173,30 @@ test("local output stopped at its length limit cannot become a partial saved res
   }) as typeof fetch, async () => {
     await assert.rejects(runConfiguredAi(settingsFor("lmstudio"), { prompt: "Extract stories" }), /incomplete result was not saved/);
   });
+});
+
+test("cloud requests stop at the daily cap without calling the provider", async () => {
+  const { runConfiguredAi, AiDailyLimitError } = await import("../lib/server/ai");
+  const previous = process.env.CONTROL_CENTER_AI_DAILY_LIMIT;
+  let calls = 0;
+  const fetcher = (async () => {
+    calls += 1;
+    return Response.json({ output: [{ content: [{ type: "output_text", text: "ok" }] }] });
+  }) as typeof fetch;
+  try {
+    // Earlier tests may have used today's budget; allow exactly one more.
+    const { aiUsageToday } = await import("../lib/ai-usage");
+    const { getDatabase } = await import("../lib/server/database");
+    process.env.CONTROL_CENTER_AI_DAILY_LIMIT = String(aiUsageToday(getDatabase()) + 1);
+    await withFetch(fetcher, () => runConfiguredAi(settingsFor("xai", "grok-4.6"), { prompt: "one" }));
+    const before = calls;
+    await assert.rejects(
+      withFetch(fetcher, () => runConfiguredAi(settingsFor("xai", "grok-4.6"), { prompt: "two" })),
+      AiDailyLimitError,
+    );
+    assert.equal(calls, before, "a capped request never reaches the provider");
+  } finally {
+    if (previous === undefined) delete process.env.CONTROL_CENTER_AI_DAILY_LIMIT;
+    else process.env.CONTROL_CENTER_AI_DAILY_LIMIT = previous;
+  }
 });

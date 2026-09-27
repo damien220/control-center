@@ -2386,6 +2386,7 @@ function SettingsView({
       `Look back ${draft.dailyBrief.lookbackDays} days and return only actionable messages, meetings, deadlines, decisions, and genuinely useful context.`,
       "Minimize private content: concise titles and summaries only; never include credentials or full message bodies.",
       `POST the result to ${endpoint} as JSON: {\"sources\":[{\"source\":\"each configured source label\",\"status\":\"success|error\",\"error\":\"required only on error\"}],\"items\":[{\"id\":\"required stable provider ID\",\"source\":\"one successful source label\",\"title\":\"...\",\"summary\":\"...\",\"kind\":\"action|meeting|message|info\",\"occurredAt\":\"ISO date\",\"dueAt\":\"optional ISO date\",\"url\":\"optional source URL\"}]}.`,
+      "Authenticate the POST: the simplest path is to pipe the JSON into `npm run ingest` from the Control Center folder, which adds the local access token automatically. A direct HTTP call must send `Authorization: Bearer <token>`, using the token printed by `npm run token`; never copy that token into prompts, logs, or connector output.",
       "Include every configured source in sources, even when a successful source has zero items. The items for each successful source must be its complete current set; missing prior items will be removed. Mark unreadable connectors as error and omit their items so the dashboard preserves the last successful set while showing the failure. Keep this operation read-only in every connected app.",
     ].join("\n");
     try {

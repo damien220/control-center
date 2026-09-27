@@ -1,4 +1,11 @@
 import { readFile } from "node:fs/promises";
+import {
+  loadLocalEnvironment,
+  readOrCreateAccessToken,
+  resolveDataDirectory,
+} from "./paths.mjs";
+
+loadLocalEnvironment();
 
 const fileArgument = process.argv
   .find((value) => value.startsWith("--file="))
@@ -34,6 +41,7 @@ const response = await fetch(endpoint, {
   headers: {
     "Content-Type": "application/json",
     Origin: new URL(endpoint).origin,
+    Authorization: `Bearer ${readOrCreateAccessToken(resolveDataDirectory())}`,
   },
   body: JSON.stringify(Array.isArray(payload) ? { items: payload } : payload),
 });

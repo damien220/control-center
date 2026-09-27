@@ -15,7 +15,7 @@ The generated prompt requires read-only connector access and asks the automation
 
 ## JSON contract
 
-POST to the local endpoint shown in Settings, normally `http://127.0.0.1:3000/api/brief`:
+POST to the local endpoint shown in Settings, normally `http://127.0.0.1:3000/api/brief`, with an `Authorization: Bearer <token>` header (see [Local ingest command](#local-ingest-command)):
 
 ```json
 {
@@ -72,4 +72,6 @@ For a non-default local port:
 npm run ingest -- --file=/absolute/path/daily-brief.json --url=http://127.0.0.1:3001
 ```
 
-JSON can also be piped through standard input. The endpoint is protected by the same loopback Host/Origin boundary as the other APIs and is not intended for network exposure.
+JSON can also be piped through standard input. `npm run ingest` reads the local access token and authenticates automatically.
+
+The endpoint requires the access token, like every other API. A direct HTTP caller must send `Authorization: Bearer <token>`, using the token printed by `npm run token` (or `docker compose exec control-center node scripts/token.mjs` for the Docker image). It is also protected by the loopback Host/Origin boundary and is not intended for network exposure.

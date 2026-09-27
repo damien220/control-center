@@ -9,6 +9,8 @@ import { AI_PROVIDER_LABELS, DEFAULT_AI_MODELS, aiSupportsWebSearch, cleanAiMode
 import { aiProviderJson } from "@/lib/ai-provider-http";
 import { discoverAiModels } from "@/lib/server/ai-models";
 import { assertLocalAiContext } from "@/lib/ai-local-context";
+import { aiDailyLimit, reserveAiRequest } from "@/lib/ai-usage";
+import { getDatabase } from "@/lib/server/database";
 
 export type AiRunOptions = {
   prompt: string;
@@ -27,6 +29,21 @@ export class AiNotConfiguredError extends Error {
     super(message);
     this.name = "AiNotConfiguredError";
   }
+}
+
+export class AiDailyLimitError extends AiNotConfiguredError {
+  constructor(limit: number) {
+    super(`The daily limit of ${limit} cloud AI requests was reached. Deterministic local ranking continues; raise CONTROL_CENTER_AI_DAILY_LIMIT to allow more.`);
+    this.name = "AiDailyLimitError";
+  }
+}
+
+// Local models cost nothing per call, so only cloud providers count.
+function reserveCloudAiRequest(provider: AiKeyProvider) {
+  if (isLocalAiProvider(provider)) return;
+  const limit = aiDailyLimit();
+  if (limit === 0) return;
+  if (!reserveAiRequest(getDatabase(), limit).allowed) throw new AiDailyLimitError(limit);
 }
 
 async function modelFor(settings: StoredSettings, provider: AiKeyProvider): Promise<AiModelOption> {
@@ -284,6 +301,7 @@ export async function runConfiguredAi(
     throw new AiNotConfiguredError(`${AI_PROVIDER_LABELS[provider]} can summarize and rank collected content, but it does not provide live web research. The built-in public-source collectors continue to run.`);
   const selectedModel = await modelFor(settings, provider);
   const model = selectedModel.id;
+  reserveCloudAiRequest(provider);
   const text = provider === "openai"
     ? await runOpenAi(key, model, options)
     : provider === "anthropic"

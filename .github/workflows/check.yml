@@ -8,6 +8,18 @@ permissions:
   contents: read
 
 jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      # The baseline is clean, so any new high/critical advisory fails the build.
+      - run: npm audit --audit-level=high
+      # Every package must resolve from the public registry with an integrity hash.
+      - run: npm audit signatures
+
   check:
     strategy:
       fail-fast: false

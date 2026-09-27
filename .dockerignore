@@ -1,0 +1,17 @@
+# Keep the build context to source files only. Never send local data or secrets.
+.git
+.github
+.claude
+.gstack
+.next
+node_modules
+.control-center
+.env*
+!.env.example
+*.log
+.DS_Store
+*.tsbuildinfo
+tests
+Dockerfile
+docker-compose.yml
+.dockerignore

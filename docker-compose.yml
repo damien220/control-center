@@ -1,0 +1,41 @@
+# Control Center in a container, reachable only from this computer.
+#
+#   docker compose up -d --build
+#   docker compose exec control-center node scripts/token.mjs
+#
+# See docs/DOCKER.md for configuration, backups, and upgrades.
+name: control-center
+
+services:
+  control-center:
+    build: .
+    image: control-center:0.3.1
+    init: true
+    restart: unless-stopped
+    ports:
+      # Published to the host loopback only. The app also rejects any request
+      # whose Host header is not loopback, so a LAN/public binding will not work.
+      - "127.0.0.1:${CONTROL_CENTER_PORT:-3000}:3000"
+    env_file:
+      # Optional: provider keys, CONTROL_CENTER_ACCESS_TOKEN,
+      # CONTROL_CENTER_AI_DAILY_LIMIT. Never copied into the image.
+      - path: .env.local
+        required: false
+    environment:
+      # Takes precedence over .env.local, which may hold a host path.
+      CONTROL_CENTER_DATA_DIR: /data
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - control-center-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache:uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  control-center-data:

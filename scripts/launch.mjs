@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   loadLocalEnvironment,
   npmCommand,
+  readOrCreateAccessToken,
   resolveDataDirectory,
 } from "./paths.mjs";
 
@@ -60,6 +61,8 @@ await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
 process.env.CONTROL_CENTER_DATA_DIR = dataDirectory;
 process.env.PORT = String(port);
 const url = `http://127.0.0.1:${port}`;
+// The fragment never reaches the server; the page swaps it for a session cookie.
+const signInUrl = `${url}/#token=${encodeURIComponent(readOrCreateAccessToken(dataDirectory))}`;
 
 async function isControlCenterRunning() {
   try {
@@ -83,13 +86,13 @@ function openBrowser() {
         ? "cmd"
         : "xdg-open";
   const commandArgs =
-    process.platform === "win32" ? ["/c", "start", "", url] : [url];
+    process.platform === "win32" ? ["/c", "start", "", signInUrl] : [signInUrl];
   const opener = spawn(command, commandArgs, {
     detached: true,
     stdio: "ignore",
   });
   opener.on("error", () => {
-    console.log(`Open ${url} in your browser.`);
+    console.log(`Open ${url} in your browser and sign in with: npm run token`);
   });
   opener.unref();
 }
@@ -224,6 +227,7 @@ while (!(await isControlCenterRunning())) {
 
 console.log(`\nControl Center is ready at ${url}`);
 console.log(`Local data: ${dataDirectory}`);
+console.log("Sign in from another browser with the URL printed by: npm run token");
 console.log("Keep this window open. Press Ctrl+C to stop.\n");
 openBrowser();
 

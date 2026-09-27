@@ -10,7 +10,13 @@ Please use GitHub's private **Report a vulnerability** flow for this repository.
 
 ## Local security model
 
-Control Center is designed to run on one trusted user's computer. It binds to loopback and rejects foreign API Host/Origin headers, but it has no account login. Do not expose it to a LAN or the public internet without an authenticated reverse proxy and a separate security review.
+Control Center is designed to run on one trusted user's computer. It binds to loopback (the Docker image publishes to the host loopback only) and rejects foreign Host/Origin headers. Every API route except the health probe, the session exchange, and Google's OAuth callback (bound to an authenticated start by its state cookie) requires the install's access token: a random 32-byte value stored owner-only in the data directory, or `CONTROL_CENTER_ACCESS_TOKEN`. Browsers exchange it once for an HttpOnly, SameSite=Strict cookie holding an HMAC of the token, so rotating the token revokes every session. Mutating browser requests must prove same-origin (`Origin` or `Sec-Fetch-Site`), and any request a browser labels cross-site or same-site is refused, including side-effecting `?refresh=1` GETs.
+
+Pages carry a per-request nonce Content-Security-Policy with `frame-ancestors 'none'`, plus `X-Frame-Options`, `nosniff`, `Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. Forced collector refreshes, model listing, and session attempts are rate-limited in-process, and cloud AI requests are capped per UTC day in SQLite (`CONTROL_CENTER_AI_DAILY_LIMIT`, default 300).
+
+This is defense in depth for a single-user tool, not a multi-user login system. Do not expose it to a LAN or the public internet. Remaining hardening items are tracked in `SECURITY_BACKLOG.md`.
+
+Dependencies are gated in CI with `npm audit --audit-level=high` and `npm audit signatures` (every package must resolve from the public npm registry with a verified signature/integrity hash), and Dependabot proposes updates weekly.
 
 OAuth credentials, optional audience-provider tokens, and optional AI provider keys are stored in the local data directory and are not encrypted at rest. They are written owner-readable on POSIX systems and are never returned by the public Settings response. Protect the operating-system account and treat full backups as secret-bearing files.
 
@@ -21,3 +27,5 @@ Newsletter intelligence requires a configured cloud or local AI model. Matching 
 LM Studio and Ollama endpoints must be numeric loopback URLs, with `localhost` normalized to loopback, and cannot redirect. Only loaded text-generation models are offered; recognizable remote/cloud aliases are excluded. The app never downloads or loads a model. A loopback destination does not prove the separate runtime processes data locally: disable LM Link or other remote forwarding if computer-only processing is required. Control Center cannot audit another runtime's internal routing. Optional local-server tokens are separate from cloud API keys; `OLLAMA_API_KEY` is never treated as a local token.
 
 User-configured Industry sources are limited to public HTTP and HTTPS addresses. DNS answers are validated and the request is pinned to the validated public address; redirects repeat the same validation. Private, loopback, local-link, and reserved network destinations are rejected. These controls are defense in depth for a local application, not authorization to expose the dashboard as a public URL-fetching service.
+
+Some public collectors (`lib/server/audience.ts`, `lib/server/google-news.ts`) send ordinary desktop/mobile browser User-Agent strings and Instagram's public web app ID because those endpoints serve signed-out metadata only to browser-like clients. This is deliberate compatibility, not an attempt to evade access controls; the collectors read only public, signed-out data.

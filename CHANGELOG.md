@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Security: upgraded Next.js to 16.3.6 (GHSA-p293-qw3h-jr36, GHSA-2xp9-vwfh-vxw4), sharp to 0.35.4, and js-yaml to 4.3.2; `npm audit` is clean.
+- Added a per-install API access token. `npm run launch` signs the browser in automatically; `npm run token` prints the token and a sign-in URL, and `--rotate` revokes all sessions. `npm run ingest` and the connector-bridge prompt authenticate with it.
+- Hardened CSRF protection: writes need same-origin proof or the bearer token, and browser-labelled cross-site requests are refused, including `?refresh=1` GETs.
+- Added a nonce-based Content-Security-Policy, clickjacking protection, and other security headers on every response.
+- Added in-process rate limits for forced refreshes, model listing, and sign-in attempts, plus a persistent daily cloud-AI request cap (`CONTROL_CENTER_AI_DAILY_LIMIT`, default 300).
+- Added a Dockerfile (multi-stage, standalone server, non-root) and `docker-compose.yml` (loopback-only port, named data volume, read-only root filesystem). OAuth redirect URIs now follow the browser's Host instead of the server's bind address.
+- CI now runs `npm audit --audit-level=high` and `npm audit signatures`; Dependabot checks npm weekly.
+- Added `docs/USAGE.md` (step-by-step usage guide) and `docs/DOCKER.md`.
+
 ## 0.3.1 - 2026-08-25
 
 - Added persistent dark mode with a saved theme preference.

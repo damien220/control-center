@@ -18,10 +18,15 @@ npm run launch
 
 Prefer a ZIP? Download **Code → Download ZIP** on GitHub, extract it, open a terminal in the extracted folder, and run `npm run launch`. Git is only required for the clone/update workflow.
 
+The launcher opens the dashboard already signed in. Each install has a private access token in its data directory; to sign in from another browser, run `npm run token` and open the printed URL or paste the token into the lock screen.
+
+Prefer containers? `docker compose up -d --build` runs the same dashboard on `127.0.0.1:3000`; see [docs/DOCKER.md](docs/DOCKER.md). For a feature-by-feature walkthrough, see [docs/USAGE.md](docs/USAGE.md).
+
 Useful commands:
 
 ```bash
 npm run doctor                 # verify runtime, settings, build, and SQLite health
+npm run token                  # print the access token and a sign-in URL
 npm run backup                 # make a consistent private backup
 npm run launch -- --no-open    # start without opening a browser
 npm run launch -- --port=3001  # use another local port
@@ -146,7 +151,7 @@ Google classifies `gmail.readonly` as a restricted scope. A personal OAuth proje
 
 ## Local data and privacy
 
-The server binds to `127.0.0.1` and rejects API requests with foreign Host or Origin headers. Do not expose it through a network proxy without adding authentication.
+The server binds to `127.0.0.1` and rejects requests with foreign Host or Origin headers. Every API call also requires the install's access token, either as the browser's HttpOnly, SameSite=Strict session cookie or as `Authorization: Bearer <token>` for scripts. Browser writes must be same-origin, cross-site requests are refused, pages send a nonce-based Content-Security-Policy with clickjacking protection, forced refreshes are rate-limited, and cloud AI calls are capped per day (`CONTROL_CENTER_AI_DAILY_LIMIT`, default 300). It is still designed for one trusted user; do not expose it to a LAN or the internet.
 
 Fresh installs store durable data outside the application folder:
 
@@ -160,6 +165,7 @@ Existing installations that already contain `./.control-center` continue using t
 
 Stored files include:
 
+- `access-token`: the local API access token (owner-readable; rotate with `npm run token -- --rotate`);
 - `settings.json`: configuration, OAuth tokens, and any saved AI/provider keys, owner-readable on POSIX systems;
 - `control-center.sqlite`: raw Industry discoveries, saved collector snapshots, surfaced content, extracted newsletter issue/link metadata, archive state, reminders, and tasks;
 - snapshot JSON files: sitemap and audience baselines.
@@ -202,7 +208,7 @@ npm run check
 npm run smoke
 ```
 
-`npm run check` runs lint, the regression suite, and a production build. `npm run smoke` exercises the same one-command launcher with an isolated temporary data directory and verifies the health endpoint, rendered home page, generic first-run state, and localhost request boundary. GitHub Actions runs the documented setup, full check, and launcher smoke path on Linux, macOS, and Windows.
+`npm run dev` does not sign the browser in; open the URL printed by `npm run token` once. `npm run check` runs lint, the regression suite, and a production build. `npm run smoke` exercises the same one-command launcher with an isolated temporary data directory and verifies the health endpoint, rendered home page, generic first-run state, and localhost request boundary. GitHub Actions runs the documented setup, full check, and launcher smoke path on Linux, macOS, and Windows.
 
 ## Private connector bridge
 
